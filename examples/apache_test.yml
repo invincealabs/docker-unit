@@ -1,0 +1,9 @@
+version: "1.0"
+image: "patricknevindwyer/pinned-apache:latest"
+tests:
+  - run: "apachectl -V"
+    key: "Server MPM"
+    contains: Prefork
+  - run: "apachectl -V"
+    key: "Server version"
+    contains: "2.2.11"
