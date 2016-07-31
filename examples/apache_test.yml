@@ -1,9 +1,22 @@
 version: "1.0"
 image: "patricknevindwyer/pinned-apache:latest"
 tests:
-  - run: "apachectl -V"
-    key: "Server MPM"
-    contains: Prefork
-  - run: "apachectl -V"
-    key: "Server version"
-    contains: "2.2.11"
+  - name: "Using prefork"
+    run: "apachectl -V"
+    use: ["kv"]
+    check:
+      - key: "Server MPM"
+        contains: Prefork
+      - key: "forked"
+        contains: "yes"
+  - name: "On Apache 2.2.11"
+    run: "apachectl -V"
+    use: kv
+    check:
+      - key: "Server version"
+        contains: "2.2.11"
+  - name: "Targeting 64bit"
+    run: "apachectl -V"
+    check:
+      - key: "Architecture"
+        contains: "64"

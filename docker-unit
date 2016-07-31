@@ -1,4 +1,216 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import sys
 import yaml
+import types
+import subprocess
+
+
+def find_images():
+    """
+    Find the images we need for testing.
+
+    :return:
+    """
+    pass
+
+
+def run_test(image, test):
+    """
+    Given a basic test config, run and find the results. The
+    config for an individual test could contain:
+
+            name: "Using prefork" (string - display name of test)
+            run: "apachectl -V" (string - command to run on image)
+            use: ["kv"] - (optional. String or List of String - extractors to run on output data.
+                            defaults to the Key Value extractor "kv")
+            check:  (one ore more conditions to check
+              - key: "Server MPM"  (key to check in parsed data)
+                contains: Prefork (expected value as a "contains")
+
+    The result dictionary after running a test looks like:
+
+        {
+            name: "test name"
+            checked:
+                [
+                    {
+                        condition: "name of condition",
+                        pass: True | False
+                    }
+                ]
+        }
+
+    :param image: The image being tested
+    :param test: Test Configuration for this test
+    :return: Test Result dictionary, described above
+    """
+
+    # The basic info for our test
+    test_name = test["name"]
+    test_cmd = test["run"]
+
+    # how do we parse the output
+    extractor_names = []
+    if "use" in test:
+        if type(test["use"]) == types.ListType:
+            extractor_names = test["use"]
+        elif type(test["use"]) in types.StringTypes:
+            extractor_names.append(test["use"])
+    else:
+        # we default to the KV extractor
+        extractor_names.append("kv")
+        
+    extractors = get_extractors(extractor_names)
+
+    # now we can run the test and capture the results
+    full_cmd = "docker run %s %s" % (image, test_cmd)
+
+    raw_output = subprocess.check_output(full_cmd, shell=True, stderr=subprocess.STDOUT)
+
+    # now we can parse the results. We end up with a k/v map
+    # as well as a list of values
+    extracted_map = {}
+    extracted_list = []
+    for extractor in extractors:
+
+        # any results for the dictionary?
+        map_res = extractor(raw_output, mode="map")
+        if map_res is not None:
+            extracted_map.update(map_res)
+
+        # any results for the list
+        list_res = extractor(raw_output, mode="list")
+        if list_res is not None:
+            extracted_list += list_res
+
+    # now we can test
+    test_results = {
+        "name": test_name,
+        "passed": False,
+        "checked": []
+    }
+
+    # run and record each check
+    for check in test["check"]:
+        subcheck = {
+            "name": None,
+            "pass": False
+        }
+
+        if "key" in check:
+            subcheck["name"] = check["key"]
+
+            if "contains" in check:
+                # key contains
+                if check["key"] in extracted_map:
+                    val = extracted_map[check["key"]]
+                    check_val = check["contains"]
+                    if check_val in val:
+                        subcheck["pass"] = True
+            else:
+                print " ! Unknown condition in test check"
+                print check
+                sys.exit(1)
+        else:
+            print " ! ERROR - List based conditionals not yet implemented!"
+            sys.exit(1)
+        test_results["checked"].append(subcheck)
+
+    # figure our our high level pass/fail
+    conds = list(set([check["pass"] for check in test_results["checked"]]))
+    if len(conds) == 1 and True in conds:
+        test_results["passed"] = True
+
+    return test_results
+
+
+def stdout_report_test(test):
+    """
+    Dump info about the individual test to STDOUT
+    :param test:
+    :return:
+    """
+
+    # figure out our high level conditions
+    passed_str = "Fail"
+    if test["passed"]:
+        passed_str = "Pass"
+
+    print "  @ [%s] == %s" % (test["name"], passed_str)
+    for check in test["checked"]:
+        subpass = "Fail"
+        if check["pass"]:
+            subpass = "Pass"
+        print "     - %s ... %s" % (check["name"], subpass)
+
+def get_extractors(extractor_list):
+    """
+    Given the string names of an extractor list, return the
+    corresponding functions.
+
+    :param extractor_list:
+    :return:
+    """
+    extractors = []
+    extractor_map = {
+        "kv": extractor_kv
+    }
+    for ext_name in extractor_list:
+        if ext_name in extractor_map:
+            extractors.append(extractor_map[ext_name])
+        else:
+            print " ! Error - unknown extractor (%s)" % (ext_name,)
+            sys.exit(1)
+    return extractors
+
+
+def extractor_kv(data, mode="map"):
+    """
+    Very permissive key value parser. This parser only
+    returns data with KV mode.
+    :return:
+    """
+    if mode == "list":
+        return None
+
+    mapped = {}
+    for line in data.split("\n"):
+        if ":" in line:
+            colon = line.index(":")
+            if colon > -1:
+                k = line[:colon]
+                v = line[colon + 1 :]
+                mapped[k.strip()] = v.strip()
+    return mapped
+
+
+def load_test(test_filename):
+    """
+    Find and load our test file.
+
+    :return:
+    """
+    return yaml.load(open(test_filename, 'r'))
+
+
+def test_info(test_config):
+    """
+    Dump information about our test.
+
+    :param test_config: Test configuration data
+
+    :return: None
+    """
+    print "Version (%s)" % (test_config["version"],)
+    print "  = Using image (%s)" % (test_config["image"],)
+    print "  + %d tests defined" % (len(test_config["tests"]),)
+
+if __name__ == "__main__":
+
+    test_config = load_test(sys.argv[1])
+    test_info(test_config)
+
+    for test in test_config["tests"]:
+        results = run_test(test_config["image"], test)
+        stdout_report_test(results)
