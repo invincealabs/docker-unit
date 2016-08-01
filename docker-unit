@@ -28,6 +28,21 @@ def run_test(image, test):
               - key: "Server MPM"  (key to check in parsed data)
                 contains: Prefork (expected value as a "contains")
 
+    When checking against a list (using "lines" or another list generator),
+    the "entry" value determines how the results are assayed. For instance:
+
+        run: "uname -1"
+        use: ["lines"]
+        check:
+          - entry: any
+            contains: "x86_64"
+
+    will check that at least one line of the lines returned by `uname -a`
+    contains the substring "x86_46".
+
+    Alternative, you can use the _entry_ term "all" to assert that
+    every line of the data returned by _run_ contains a matching value.
+
     The result dictionary after running a test looks like:
 
         {
@@ -60,7 +75,7 @@ def run_test(image, test):
     else:
         # we default to the KV extractor
         extractor_names.append("kv")
-        
+
     extractors = get_extractors(extractor_names)
 
     # now we can run the test and capture the results
@@ -101,6 +116,7 @@ def run_test(image, test):
         if "key" in check:
             subcheck["name"] = check["key"]
 
+            # how are we evaluating this check?
             if "contains" in check:
                 # key contains
                 if check["key"] in extracted_map:
@@ -108,10 +124,42 @@ def run_test(image, test):
                     check_val = check["contains"]
                     if check_val in val:
                         subcheck["pass"] = True
+            elif "equals" in check:
+                # key equals
+                if check["key"] in extracted_map:
+                    val = extracted_map[check["key"]]
+                    check_val = check["equals"]
+                    if check_val == val:
+                        subcheck["pass"] = True
             else:
                 print " ! Unknown condition in test check"
                 print check
                 sys.exit(1)
+        elif "entry" in check:
+
+            if "contains" in check:
+                matches = []
+                check_val = check["contains"]
+                subcheck["name"] = "Contains %s" % (check_val,)
+
+                for line in extracted_list:
+                    if check_val in line:
+                        matches.append(True)
+                    else:
+                        matches.append(False)
+
+                if check["entry"] == "any":
+                    if True in matches:
+                        subcheck["pass"] = True
+                elif check["entry"] == "all":
+                    reduced = list(set(matches))
+                    if len(reduced) == 1 and reduced[0] == True:
+                        subcheck["pass"] = True
+            else:
+                print " ! Unknown list condition in check"
+                print check
+                sys.exit(1)
+
         else:
             print " ! ERROR - List based conditionals not yet implemented!"
             sys.exit(1)
@@ -154,7 +202,9 @@ def get_extractors(extractor_list):
     """
     extractors = []
     extractor_map = {
-        "kv": extractor_kv
+        "kv": extractor_kv,
+        "env": extractor_env,
+        "lines": extractor_lines
     }
     for ext_name in extractor_list:
         if ext_name in extractor_map:
@@ -163,6 +213,20 @@ def get_extractors(extractor_list):
             print " ! Error - unknown extractor (%s)" % (ext_name,)
             sys.exit(1)
     return extractors
+
+
+def extractor_lines(data, mode="map"):
+    """
+    Just return the lines of the output. Works in list mode.
+
+    :param data:
+    :param mode:
+    :return:
+    """
+    if mode == "map":
+        return None
+
+    return data.split("\n")
 
 
 def extractor_kv(data, mode="map"):
@@ -182,6 +246,27 @@ def extractor_kv(data, mode="map"):
                 k = line[:colon]
                 v = line[colon + 1 :]
                 mapped[k.strip()] = v.strip()
+    return mapped
+
+
+def extractor_env(data, mode="map"):
+    """
+    Extract environment variable style KEY=value
+
+    :param data:
+    :param mode:
+    :return:
+    """
+    if mode == "list":
+        return None
+
+    mapped = {}
+    for line in data.split("\n"):
+        if "=" in line:
+            pivot = line.index("=")
+            k = line[:pivot]
+            v = line[pivot + 1:]
+            mapped[k.strip()] = v.strip()
     return mapped
 
 

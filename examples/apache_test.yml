@@ -20,3 +20,17 @@ tests:
     check:
       - key: "Architecture"
         contains: "64"
+  - name: "Environment check"
+    run: "env"
+    use: ["env"]
+    check:
+      - key: "HOME"
+        equals: "/root"
+      - key: "PATH"
+        contains: "/usr/local/bin"
+  - name: "Running on x86_64"
+    run: "uname -a"
+    use: ["lines"]
+    check:
+      - entry: any
+        contains: "x86_64"
