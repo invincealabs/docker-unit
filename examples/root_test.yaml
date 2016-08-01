@@ -1,0 +1,15 @@
+version: "1.0"
+image: "patricknevindwyer/pinned-apache:latest"
+tests:
+  - name: "Running as root"
+    run: "whoami"
+    use: "lines"
+    check:
+      - entry: any
+        contains: root
+  - name: "Environment check"
+    run: "env"
+    use: ["env"]
+    check:
+      - key: "HOME"
+        equals: "/root"
