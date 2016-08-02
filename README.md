@@ -3,7 +3,7 @@ Test the run time characteristics of your Docker containers.
 # Install
 
 ```sh
-TBD
+pip install git+https://github.com/patricknevindwyer/docker-unit.git
 ```
 
 # Test Description
